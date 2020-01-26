@@ -1,0 +1,49 @@
+{
+  // 发布时合并以下配置 https://babeljs.io/docs/usage/babelrc/
+  "env": {
+    "production": {
+      "presets": [
+        "react",
+        "env",
+        "stage-0"
+      ],
+      "plugins": [
+        ["transform-runtime", {
+            "polyfill": false,
+            "regenerator": true
+        }],
+        ["import", { "libraryName": "antd-mobile", "style": "css" }],
+        ["transform-decorators-legacy"]
+      ]
+    }
+  },
+  "presets": [
+    "react",
+    // https://github.com/babel/babel-preset-env
+    // 调试模式下不编译到低版本，以便为 async await 打断点，如需要调试 IE 等浏览器，请修改下面的配置
+    ["env", {
+      "targets": {
+        "browsers": ["chrome >= 60"],
+        "node": "current"
+      }
+    }],
+    "stage-0"
+  ],
+  "plugins": [
+    /*"add-module-exports",*/
+    ["transform-runtime", {
+      "polyfill": false,
+      "regenerator": true
+    }],
+    ["transform-decorators-legacy"],
+    ["import", { "libraryName": "antd-mobile", "style": "css" }],
+    /* alias common ==> ./src/common */
+    ["module-resolver", {
+      "alias": {
+        "common": "./src/common",
+        "client": "./src/client",
+        "~/components/common": "./src/client/components/Common"
+      }
+    }]
+  ]
+}
