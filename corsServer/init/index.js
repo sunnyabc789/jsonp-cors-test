@@ -7,8 +7,6 @@ import etag from 'koa-etag'
 import compress from 'koa-compress'
 import forward from 'koa-forward-request'
 import allowCROSMiddleware from './allow-cros-middleware'
-import koaUnless from 'koa-unless'
-import path from 'path'
 
 const isProduction = process.env.NODE_ENV || 'development'
 const cwd = process.cwd()
@@ -139,6 +137,12 @@ export default async function appInit(extraLocal) {
   //路由处理
   // router(app)
 
-
+  app.use( async (ctx ) => {
+    let url = ctx.request.url
+    console.log(url,'===');
+    if (url === '/test-cors') {
+      return ctx.body = 'test-cors'
+    }
+  })
   return app
 }
