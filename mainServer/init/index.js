@@ -7,6 +7,10 @@ import etag from 'koa-etag'
 import compress from 'koa-compress'
 import forward from 'koa-forward-request'
 import allowCROSMiddleware from './allow-cros-middleware'
+import Bodyparser from 'koa-bodyparser'
+import handleMultipartUploadFile from '../utils/multipart-upload'
+import handleMergeMultipartFile from '../utils/merge-multipartfile'
+import handleVerify from '../utils/verify-existed-file'
 
 const isProduction = process.env.NODE_ENV || 'development'
 const cwd = process.cwd()
@@ -15,6 +19,13 @@ const staticOption = () => ({
   maxAge: 1000 * 60 * 60 * 24 * 365,
   hidden: true
 })
+
+const defaultRequestbodyLimit = {
+  jsonLimit: '2mb',
+  textLimit: '56kb',
+  formLimit: '56kb'
+}
+const bodyparser = Bodyparser(defaultRequestbodyLimit)
 
 export default async function appInit(extraLocal) {
 
@@ -53,6 +64,7 @@ export default async function appInit(extraLocal) {
   // body解析，与 http-proxy-middleware 不兼容
   // bodyparser.unless = koaUnless
   // app.use(bodyparser.unless({ path: /(^\/app\/task-schedule)|(^\/app\/sdk\/sdk-upload-importfile)/ }))
+  app.use(bodyparser)
 
   // session
   // const sessionKey = 'sugo:sess'
@@ -137,11 +149,21 @@ export default async function appInit(extraLocal) {
   //路由处理
   // router(app)
 
+
   app.use( async (ctx ) => {
     let url = ctx.request.url
-    console.log(url,'===');
-    if (url === '/test-cors') {
+    if (url === '/chunk-upload-file') {
+      handleMultipartUploadFile(ctx)
       return ctx.body = 'test-cors'
+    }
+
+    if (url === '/merge') {
+      await handleMergeMultipartFile(ctx)
+      return ctx.body = 'test-merge'
+    }
+
+    if (url === '/verify') {
+      await handleVerify()
     }
   })
   return app
