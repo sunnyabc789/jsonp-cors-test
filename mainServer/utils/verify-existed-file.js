@@ -16,7 +16,15 @@ export default async function handleVerify (ctx) {
   }
   return ctx.body = {
     code: 200,
-    shouldUpload: true
+    shouldUpload: true,
+    uploadedList: await createUploadedList(fileHash)
   }
 
 }
+
+async function createUploadedList(fileHash ) {
+  fse.existsSync(`${UPLOAD_DIR}/${fileHash}`)
+    ? await fse.readdir(`${UPLOAD_DIR}/${fileHash}`)
+    : [];
+}
+

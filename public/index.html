@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Document</title>
+</head>
+<body>
+  <input type="file" id='file-input'>
+  <button id='upload-button'>uploadfile</button>
+  <button id='pause-upload'>pause</button>
+    <button id='resume-upload'>resume</button>
+</body>
+</html>
+<script>
+  const fileInput = document.getElementById('file-input')
+  const uploadButton = document.getElementById('upload-button')
+  const pauseButton = document.getElementById('pause-upload')
+  const resumeButton = document.getElementById('resume-upload')
+
+  let finalData = []
+
+  const container = {
+    file: null
+  }
+  let hashPercentage = 0
+
+  fileInput.onchange = function (e) {
+    const [file] = e.target.files
+    if (!file) return
+    container.file = file
+  } 
+
+  pauseButton.onclick = handlePause
+  resumeButton.onclick = handleResume
+
+  function request ({
+      url,
+      method = "post",
+      data,
+      headers = {},
+      //读取进度函数
+      onProgress = e => e,
+      requestList
+    }) {
+    return new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+       xhr.upload.onprogress = onProgress;
+      xhr.open(method, url);
+      Object.keys(headers).forEach(key =>
+        xhr.setRequestHeader(key, headers[key])
+      );
+      xhr.send(data);
+      xhr.onload = e => {
+         // 将请求成功的 xhr 从列表中删除
+        if (requestList) {
+          const xhrIndex = requestList.findIndex(item => item === xhr);
+          requestList.splice(xhrIndex, 1);
+        }
+        resolve({
+          data: e.target.response
+        });
+      };
+      // 暴露当前 xhr 给外部
+      requestList?.push(xhr)
+    });
+  }
+
+  const LENGTH = 10; // 切片数量
+
+  // 生成文件切片
+  function createFileChunk(file, length = LENGTH) {
+    const fileChunkList = [];
+    const chunkSize = Math.ceil(file.size / length);
+    let cur = 0;
+    while (cur < file.size) {
+          fileChunkList.push({ file: file.slice(cur, cur + chunkSize) });
+          cur += chunkSize;
+    }
+    return fileChunkList;
+  }
+
+
+  async function uploadChunks(uploadedList = []) {
+    const requestList = finalData.filter( ({ hash }) => !uploadedList.includes(hash))
+    .map(({ chunk, hash, index }) => {
+      const formData = new FormData();
+      formData.append("chunk", chunk);
+      formData.append("hash", hash);
+      formData.append("filename", container.file.name);
+      return { formData, index };
+    })
+    .map(async({ formData }, index) => {
+      request({
+        url: 'http://127.0.0.1:3000/chunk-upload-file',
+        data: formData,
+        onProgress: createProgressHandler(finalData[index]),
+      })
+    }) 
+    await Promise.all(requestList);
+    // 合并切片
+    if (uploadedList.length + requestList.length === this.data.length) {
+      await mergeRequest();
+    }
+  }
+
+  uploadButton.onclick = handleUpload
+
+  async function handleUpload(e) {
+     if (!container.file) return;
+     const fileChunkList = createFileChunk(container.file);
+     container.hash = await calculateHash(fileChunkList);
+     const { shouldUpload, uploadedList } = await this.verifyUpload(
+       container.file.name,
+       container.hash
+     )
+      if (!shouldUpload) {
+        console.log('秒传成功');
+        return
+      }
+      finalData = fileChunkList.map(({ file }, index) => ({
+          fileHash: container.hash,
+          chunk: file,
+          index,
+          percentage: 0,
+          hash: container.file.name + "-" + index // 文件名 + 数组下标
+      }));
+      await uploadChunks(uploadedList);
+  }
+
+   async function mergeRequest() {
+      await request({
+         url: "http://127.0.0.1:3000/merge",
+         headers: {
+            "content-type": "application/json"
+         },
+         data:  JSON.stringify({
+          filename: container.file.name
+         })
+      })
+   }
+
+   async function verifyUpload(filename, fileHash) {
+      const { data } = await request({
+         url: "http://localhost:3000/verify",
+         headers: {  "content-type": "application/json" },
+         data: JSON.stringify({
+             filename,
+             fileHash
+         })
+      })
+      return JSON.parse(data);
+   }
+
+   function createProgressHandler(item) {
+     return e => {
+        item.percentage = parseInt(String((e.loaded / e.total) * 100));
+     }
+   }
+
+
+   function calculateHash(fileChunkList) {
+     return new Promise(resolve => {
+       // 添加 worker 属性
+       container.worker = new Worker("/worker.js");
+       container.worker.postMessage({ fileChunkList });
+       container.worker.onmessage = e => {
+          const { percentage, hash } = e.data;
+          hashPercentage = percentage;
+          if (hash) {
+             resolve(hash);
+          }
+       }
+     })
+   }
+
+   const loaded = finalData
+    .map( i => i.size * i.percentage)
+    .reduce((pre, next) => pre + next)
+    console.log((~~(loaded / container.file.size)).toFixed(2));
+
+
+  function handlePause() {
+    //中断ajax请求
+    requestList.forEach(xhr => xhr ?.abort());
+    requestList = [];
+  }
+
+  async function handleResume() {
+     const { uploadedList } = await this.verifyUpload(
+       container.file.name,
+       container.hash
+     )
+      await uploadChunks(uploadedList);
+  }
+</script>
+

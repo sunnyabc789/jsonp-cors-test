@@ -13,7 +13,7 @@ test/e2e/reports
 /assets/
 /app/
 /log/
-/public/
+/public/upload
 /analytics/
 /uploads/
 /common/
