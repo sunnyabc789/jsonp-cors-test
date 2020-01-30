@@ -25,6 +25,7 @@
     file: null
   }
   let hashPercentage = 0
+  let fakeUploadPercentage = 0
 
   fileInput.onchange = function (e) {
     const [file] = e.target.files
@@ -123,7 +124,7 @@
           fileHash: container.hash,
           chunk: file,
           index,
-          percentage: 0,
+          percentage: uploadedList.includes(index) ? 100 : 0,
           hash: container.file.name + "-" + index // 文件名 + 数组下标
       }));
       await uploadChunks(uploadedList);
