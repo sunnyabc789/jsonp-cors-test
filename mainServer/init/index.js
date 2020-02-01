@@ -113,8 +113,10 @@ export default async function appInit(extraLocal) {
       } else {
         //500 page
         ctx.status = 500
-        ctx.local.error = e
-        ctx.render('500', ctx.local)
+        // ctx.render('500', ctx.local)
+        ctx.body = {
+          code: 500
+        }
       }
     }
   })
@@ -163,7 +165,7 @@ export default async function appInit(extraLocal) {
     }
 
     if (url === '/verify') {
-      await handleVerify()
+      await handleVerify(ctx)
     }
   })
   return app

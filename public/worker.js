@@ -17,15 +17,14 @@ self.onmessage = e => {
           percentage: 100,
           hash: spark.end()
         });
-        self.close();
-      } else {
-        percentage += 100 / fileChunkList.length;
-        self.postMessage({
-          percentage
-        });
-        // 递归计算下一个切片
-        loadNext(count);
+        return self.close();
       }
+      percentage += 100 / fileChunkList.length;
+      self.postMessage({
+        percentage
+      });
+      // 递归计算下一个切片
+      return loadNext(count);
     };
   };
   loadNext(0);

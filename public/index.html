@@ -10,7 +10,8 @@
   <input type="file" id='file-input'>
   <button id='upload-button'>uploadfile</button>
   <button id='pause-upload'>pause</button>
-    <button id='resume-upload'>resume</button>
+  <button id='resume-upload'>resume</button>
+  <button id='merge-file'>mergeFile</button>
 </body>
 </html>
 <script>
@@ -18,18 +19,41 @@
   const uploadButton = document.getElementById('upload-button')
   const pauseButton = document.getElementById('pause-upload')
   const resumeButton = document.getElementById('resume-upload')
+  const mergeFile = document.getElementById('merge-file')
+
+  const Status = {
+    wait: "wait",
+    pause: "pause",
+    uploading: "uploading"
+  };
 
   let finalData = []
-
+  let status = Status.wait
   const container = {
     file: null
   }
   let hashPercentage = 0
   let fakeUploadPercentage = 0
 
+    mergeFile.onclick = function () {
+        request({
+          url: "/merge",
+          headers: {
+            "content-type": "application/json"
+          },
+           data: JSON.stringify({
+            filename: container.file.name,
+            size: SIZE,
+            fileHash: container.hash
+          })
+        })
+      }
+
+
   fileInput.onchange = function (e) {
     const [file] = e.target.files
     if (!file) return
+    resetData()
     container.file = file
   } 
 
@@ -64,20 +88,24 @@
         });
       };
       // 暴露当前 xhr 给外部
-      requestList?.push(xhr)
+      // requestList?.push(xhr)
+      requestList ? requestList.push(xhr) : null
     });
   }
 
-  const LENGTH = 10; // 切片数量
+  // const LENGTH = 10; // 切片数量
+  const SIZE = 10 * 1024 * 1024; // 切片大小
 
   // 生成文件切片
-  function createFileChunk(file, length = LENGTH) {
+  function createFileChunk(file, size = SIZE) {
     const fileChunkList = [];
-    const chunkSize = Math.ceil(file.size / length);
+
+    //不能用length 来生成 chunk大小 应该用切片大小来控制
+    // const chunkSize = Math.ceil(file.size / length);
     let cur = 0;
     while (cur < file.size) {
-          fileChunkList.push({ file: file.slice(cur, cur + chunkSize) });
-          cur += chunkSize;
+          fileChunkList.push({ file: file.slice(cur, cur + size) });
+          cur += size;
     }
     return fileChunkList;
   }
@@ -90,61 +118,81 @@
       formData.append("chunk", chunk);
       formData.append("hash", hash);
       formData.append("filename", container.file.name);
+            formData.append("fileHash", container.hash);
       return { formData, index };
-    })
-    .map(async({ formData }, index) => {
-      request({
-        url: 'http://127.0.0.1:3000/chunk-upload-file',
+    }).map(async ({ formData }, index) => {
+       await request({
+        url: '/chunk-upload-file',
         data: formData,
         onProgress: createProgressHandler(finalData[index]),
+        // requestList: finalData.filter(({ hash }) => !uploadedList.includes(hash))
       })
-    }) 
+    })
+
+    // await forAwaitAll(requestList, async ({ formData }, index) => {
+    //   await request({
+    //     url: '/chunk-upload-file',
+    //     data: formData,
+    //     onProgress: createProgressHandler(finalData[index]),
+    //     // requestList: finalData.filter(({ hash }) => !uploadedList.includes(hash))
+    //   })
+    // })
+
+    //磁盘IO是宏任务 promise是微任务 此处无法形成阻塞 对此处来说 只要给 request前加上await即可形成阻塞 不需要forAwatiall
+    //同时 不同域的话 这里也不需要await 不同域的请求没有并行 自动阻塞
+    //但是就算阻塞了 请求发的太快 亦然有node读不到的风险 所以merge请求应该去掉
     await Promise.all(requestList);
     // 合并切片
-    if (uploadedList.length + requestList.length === this.data.length) {
-      await mergeRequest();
-    }
+    await mergeRequest();
   }
 
   uploadButton.onclick = handleUpload
 
   async function handleUpload(e) {
      if (!container.file) return;
+     status = Status.uploading;
      const fileChunkList = createFileChunk(container.file);
      container.hash = await calculateHash(fileChunkList);
-     const { shouldUpload, uploadedList } = await this.verifyUpload(
+
+     const { shouldUpload, uploadedList = [] } = await verifyUpload(
        container.file.name,
        container.hash
      )
       if (!shouldUpload) {
         console.log('秒传成功');
+        status = Status.wait;
         return
       }
       finalData = fileChunkList.map(({ file }, index) => ({
           fileHash: container.hash,
           chunk: file,
           index,
-          percentage: uploadedList.includes(index) ? 100 : 0,
-          hash: container.file.name + "-" + index // 文件名 + 数组下标
+          percentage: uploadedList.includes(index) ? 100 : 0,  //切片的进度 只有0和100
+          size: file.size,
+          hash: container.hash + "-" + index // 文件名 + 数组下标
       }));
       await uploadChunks(uploadedList);
   }
 
    async function mergeRequest() {
       await request({
-         url: "http://127.0.0.1:3000/merge",
+         url: "/merge",
          headers: {
-            "content-type": "application/json"
+            "content-type": "application/json",
+            "connection": "close"
          },
          data:  JSON.stringify({
-          filename: container.file.name
+          filename: container.file.name,
+          size: SIZE,
+          fileHash: container.hash
          })
       })
+      status = Status.wait
    }
 
    async function verifyUpload(filename, fileHash) {
       const { data } = await request({
-         url: "http://localhost:3000/verify",
+         url: "/verify",
          headers: {  "content-type": "application/json" },
          data: JSON.stringify({
              filename,
@@ -176,24 +224,43 @@
      })
    }
 
-   const loaded = finalData
-    .map( i => i.size * i.percentage)
-    .reduce((pre, next) => pre + next)
-    console.log((~~(loaded / container.file.size)).toFixed(2));
+  //  const loaded = finalData
+  //   .map( i => i.size * i.percentage)
+  //   .reduce((pre, next) => pre + next)
+  //   console.log((~~(loaded / container.file.size)).toFixed(2));
 
 
   function handlePause() {
     //中断ajax请求
-    requestList.forEach(xhr => xhr ?.abort());
+    // requestList.forEach(xhr => xhr ?.abort());
+       requestList.forEach(xhr => xhr ? xhr.abort() : null);
     requestList = [];
   }
 
   async function handleResume() {
-     const { uploadedList } = await this.verifyUpload(
+     const { uploadedList } = await verifyUpload(
        container.file.name,
        container.hash
      )
       await uploadChunks(uploadedList);
   }
+
+  function resetData() {
+    // requestList.forEach(xhr => xhr ? xhr.abort() : null);
+    // requestList = [];
+    if (container.worker) {
+      container.worker.onmessage = null;
+    }
+  }
+
+  async function forAwaitAll(arr, mapper) {
+      let res = []
+      let i = 0
+      for (let v of arr) {
+        let r = await mapper(v, i++, arr)
+        res.push(r)
+      }
+      return res
+    }
 </script>
 
